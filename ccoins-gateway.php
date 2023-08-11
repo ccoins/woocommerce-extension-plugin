@@ -27,9 +27,9 @@ function init_custom_gateway_class(){
          */
         public function __construct() {
 
-            $this->domain = 'custom_payment';
+            $this->domain = 'ccoins_payment_gateway';
 
-            $this->id                 = 'custom';
+            $this->id                 = 'ccoins';
             $this->icon               = apply_filters('woocommerce_custom_gateway_icon', '');
             $this->has_fields         = false;
             $this->method_title       = __( 'CCoins', $this->domain );
@@ -90,12 +90,25 @@ function init_custom_gateway_class(){
                     'desc_tip'    => true,
                 ),
                 'instructions' => array(
-                    'title'       => __( 'CCoins API Token', $this->domain ),
+                    'title'       => __( 'Instructions', $this->domain ),
                     'type'        => 'textarea',
-                    'description' => __( 'The API Token from CCoins', $this->domain ),
+                    'description' => __( 'Instructions', $this->domain ),
                     'default'     => '',
                     'desc_tip'    => true,
                 ),
+                'api_key'        => array(
+                    'title'       => __( 'API Key', 'ccoins' ),
+                    'type'        => 'text',
+                    'default'     => '',
+                    'description' => sprintf(
+                        // translators: Description field for API on settings page. Includes external link.
+                        __(
+                            'You can manage your API keys within the CCoins Web CCUSD Settings page, available here: %s',
+                            'ccoins'
+                        ),
+                        esc_url( 'https://ccoins.io' )
+                    ),
+				)
             );
         }
 
@@ -121,95 +134,6 @@ function init_custom_gateway_class(){
             }
         }
 
-        public function payment_fields(){
-
-            if ( $description = $this->get_description() ) {
-                echo wpautop( wptexturize( $description ) );
-            }
-
-            if ( $this->instructions ) {
-               $instructions = $this->instructions;
-            }
-
-            ?>
-                <button id='sendRequestButton' style="background-color: #7ABF2E; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; display: inline-flex; align-items: center;">
-                    <img style="width: 24px; height: 24px; margin-right: 10px;" src="https://ccoins-logos-public.s3.amazonaws.com/icon.png" alt="Icon">
-                        <b>Pay with crypto</b>
-                </button>
-                <script>
-                    jQuery(function($) {
-                        function tableToJson() {
-                            var table = document.querySelector('.woocommerce-checkout-review-order-table');
-                            var data = '';
-                            
-                            var tbody = table.querySelector('tbody');
-                            var rows = tbody.querySelectorAll('tr');
-                            
-                            rows.forEach(function(row) {
-                                var product_name = row.querySelector('.product-name').textContent.trim();
-                                var product_total = row.querySelector('.product-total').textContent.trim();
-
-                                productLine = product_name.replaceAll('/t', '') + ': ' + product_total;
-                                data += productLine + '\n';
-            
-                            });
-                            
-                            var tfoot = table.querySelector('tfoot');
-                            var total_price = tfoot.querySelector('.order-total .woocommerce-Price-amount').textContent.trim();
-                            
-                            // Match the price pattern (digits with optional decimal point and more digits)
-                            var pattern = /\d+(\.\d+)?/;
-
-                            // Perform the regular expression match
-                            var matches = total_price.match(pattern);
-
-                            if (matches) {
-                                total_price = parseFloat(matches[0]);
-                            } else {
-                                console.log("Price not found in the string.");
-                            }
-
-                            return {
-                                'description': data,
-                                'total_price': total_price
-                            };
-                        }
-
-                        $('#sendRequestButton').on('click', function() {
-                            var jsonData = tableToJson();
-                            const body = {
-                                first_name: document.getElementById('billing_first_name').value,
-                                last_name: document.getElementById('billing_last_name').value,
-                                email: document.getElementById('billing_email').value,
-                                fiat_amount: jsonData['total_price'],
-                                description: jsonData['description']
-                            };
-
-                            var auth_token = '<?php echo $instructions; ?>';
-                            var headers =  { 'Authorization': 'Basic ' + auth_token };
-
-                            // Send POST request with JSON data as body
-                            $.ajax({
-                                url: 'https://staging.ccoins.io/external/ecommerce/redirect',
-                                type: 'POST',
-                                contentType: 'application/json',
-                                headers: headers,
-                                data: JSON.stringify(body),
-                                success: function(response) {
-                                    // Handle success response
-                                    window.open(response.redirect_url, '_blank');
-                                },
-                                error: function(error) {
-                                    // Handle error response
-                                    console.error('Error sending POST request:', error);
-                                }
-                            });
-                        });
-                });
-                </script>
-            <?php
-        }
-
         /**
          * Process the payment and return the result.
          *
@@ -222,22 +146,71 @@ function init_custom_gateway_class(){
 
             $status = 'wc-' === substr( $this->order_status, 0, 3 ) ? substr( $this->order_status, 3 ) : $this->order_status;
 
+            // Create description for charge based on order's products. Ex: 1 x Product1, 2 x Product2
+            try {
+                $order_items = array_map( function( $item ) {
+                    return $item['quantity'] . ' x ' . $item['name'];
+                }, $order->get_items() );
+
+                $description = mb_substr( implode( ', ', $order_items ), 0, 200 );
+            } catch ( Exception $e ) {
+                $description = null;
+            }
+
+            $order_data = array(
+                'order_id'  => $order->get_id(),
+                'order_key' => $order->get_order_key(),
+                'source' => 'woocommerce',
+                'description' => $description,
+                'return_url' => $this->get_return_url($order)
+            );
+
+            // Create a new charge.
+            $metadata = array(
+                'email' => $order->billing_email,
+                'first_name' => $order->billing_first_name,
+                'last_name' => $order->billing_last_name,
+                'fiat_amount' => $order->get_total(),
+                'data' => $order_data
+            );
+
+            $ch = curl_init();
+            $url = 'https://staging.ccoins.io/external/ecommerce/redirect';
+            $api_key = $this->get_option( 'api_key' );
+            $jsonData = json_encode($metadata);
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonData);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($jsonData),
+                'Authorization: Barear ' . $api_key,
+                'X-CSRF-Token: ' . $api_key
+            ));
+
+            $response = curl_exec($ch);
+
+            if ($response) {
+                $responseData = json_decode($response, true);
+            
+                if ($responseData) {
+                    $redirect_url = $responseData['redirect_url'];
+                } else {
+                    echo 'Invalid JSON received';
+                }
+            } else {
+                echo 'No response received';
+            }
+
             // Set order status
-            // $order->update_status( $status, __( 'Checkout with custom payment. ', $this->domain ) );
-
-            // or call the Payment complete
-            // $order->payment_complete();
-
-            // Reduce stock levels
-            // $order->reduce_order_stock();
-
-            // Remove cart
-            // WC()->cart->empty_cart();
+            $order->update_status( $status, __( 'Checkout with custom payment. ', $this->domain ) );
+            $order->save();
 
             // Return thankyou redirect
             return array(
                 'result' => 'success',
-                'redirect' => $this->get_return_url( $order )
+                'redirect' => $redirect_url
             );
         }
     }
@@ -247,21 +220,6 @@ add_filter( 'woocommerce_payment_gateways', 'add_custom_gateway_class' );
 function add_custom_gateway_class( $methods ) {
     $methods[] = 'WC_Gateway_Custom'; 
     return $methods;
-}
-
-add_action('woocommerce_checkout_process', 'process_custom_payment');
-function process_custom_payment(){
-
-    if($_POST['payment_method'] != 'custom')
-        return;
-
-    // if( !isset($_POST['mobile']) || empty($_POST['mobile']) )
-    //     wc_add_notice( __( 'Please add your mobile number', $this->domain ), 'error' );
-
-
-    // if( !isset($_POST['transaction']) || empty($_POST['transaction']) )
-    //     wc_add_notice( __( 'Please add your transaction ID', $this->domain ), 'error' );
-
 }
 
 /**
