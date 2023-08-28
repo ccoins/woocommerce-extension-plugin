@@ -22,7 +22,7 @@ La API de CCoins espera la siguiente informacion
 - **Body**: La informacion que se espera del lado del servidor es:
     - `data`: JSON que contiene la `description` del producto. Esta puede ser por ejemplo el nombre, o cualquier informacion que se considere relevante para la distincion del producto. Un ejemplo de este campo es 
         ```json
-        "data": { "description": "Lavarropas" }
+        "data": { "description": "Lavarropas", "home_url": "https://www.ecommerce.com" }
         ```
     - `first_name`: Nombre del cliente
     - `last_name`: Apellido del cliente
