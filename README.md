@@ -20,7 +20,7 @@ La API de CCoins espera la siguiente informacion
         "headers": { "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" }
     ```
 - **Body**: La informacion que se espera del lado del servidor es:
-    - `data`: JSON que contiene la `description` del producto. Esta puede ser por ejemplo el nombre, o cualquier informacion que se considere relevante para la distincion del producto. Un ejemplo de este campo es 
+    - `data`: JSON que contiene la `description` del producto. Esta puede ser por ejemplo el nombre, o cualquier informacion que se considere relevante para la distincion del producto. Tambien contiene la `home_url`, que es la url a la cual se lo redirige al usuario. Un ejemplo de este campo es 
         ```json
         "data": { "description": "Lavarropas", "home_url": "https://www.ecommerce.com" }
         ```
@@ -36,7 +36,7 @@ La API de CCoins espera la siguiente informacion
         "last_name": "Doe",
         "email": "jhon.doe@mail.com",
         "fiat_amount": 107.75,
-        "data": { "description": "Lavarropas" }
+        "data": { "description": "Lavarropas", "home_url": "https://www.ecommerce.com" }
     }
     ```
 - **Response**: Una vez hecho el request, la CCoins API retornara una URL valida hacia la cual usted debe redirigir al usuario final
